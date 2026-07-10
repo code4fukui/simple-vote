@@ -50,3 +50,41 @@ Deno.test("poll content update requires a valid admin token", async () => {
   assertEquals(result.title, "After");
   assertEquals(result.options[0].label, "C");
 });
+
+Deno.test("reset clears votes and starts a new voting revision", async () => {
+  const create = await handler(
+    new Request("http://localhost/api/polls", {
+      method: "POST",
+      body: JSON.stringify({ title: "Reset test", options: ["A", "B"] }),
+    }),
+  );
+  const created = await create.json();
+  const token = new URL(created.adminUrl, "http://localhost").searchParams.get("token");
+  const browserId = "test-browser-id-1234567890";
+  const vote = () =>
+    handler(
+      new Request(`http://localhost/api/polls/${created.id}/vote`, {
+        method: "POST",
+        body: JSON.stringify({ optionId: "1", browserId }),
+      }),
+    );
+
+  assertEquals((await vote()).status, 201);
+  const reset = await handler(
+    new Request(`http://localhost/api/polls/${created.id}/reset`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    }),
+  );
+  assertEquals(reset.status, 200);
+  assertEquals((await vote()).status, 201);
+
+  const results = await handler(
+    new Request(`http://localhost/api/polls/${created.id}/results`, {
+      headers: { authorization: `Bearer ${token}` },
+    }),
+  );
+  const result = await results.json();
+  assertEquals(result.totalVotes, 1);
+  assertEquals(result.revision, 1);
+});

@@ -156,6 +156,9 @@ button:disabled {
 .secondary {
   background: #fff;
 }
+.danger {
+  background: #ffb4a7;
+}
 .eyebrow {
   font-weight: 900;
   text-transform: uppercase;

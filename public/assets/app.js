@@ -79,7 +79,8 @@ function renderHome() {
 async function renderVote(id) {
   try {
     const poll = await api(`/api/polls/${id}`);
-    const voted = localStorage.getItem(`simple-vote-voted-${id}`);
+    const voteStorageKey = `simple-vote-voted-${id}-${poll.revision}`;
+    const voted = localStorage.getItem(voteStorageKey);
     app.innerHTML = `<p class="eyebrow">Your vote</p><h1>${
       escapeHtml(poll.title)
     }</h1><p class="lead">最も良いと思った作品をひとつ選んでください。</p><section class="card" id="vote-card">${
@@ -104,7 +105,7 @@ async function renderVote(id) {
             method: "POST",
             body: JSON.stringify({ optionId: button.dataset.id, browserId: getBrowserId() }),
           });
-          localStorage.setItem(`simple-vote-voted-${id}`, "1");
+          localStorage.setItem(voteStorageKey, "1");
           document.querySelector("#vote-card").innerHTML = `<h2>投票ありがとうございました！</h2>${
             message("あなたの一票を受け付けました。")
           }`;
@@ -130,6 +131,7 @@ async function renderAdmin(id) {
         headers: { authorization: `Bearer ${token}` },
       });
       const max = Math.max(1, ...poll.options.map((o) => o.votes));
+      const voteUrl = new URL(`/vote/${encodeURIComponent(id)}`, location.origin).href;
       app.innerHTML = `<p class="eyebrow">Live results</p><h1>${
         escapeHtml(poll.title)
       }</h1><p class="lead">合計 ${poll.totalVotes} 票</p><section class="card results-card"><h2>現在の集計</h2>${
@@ -140,7 +142,9 @@ async function renderAdmin(id) {
             o.votes / max * 100
           }%"></i></div></div>`
         ).join("")
-      }<button id="refresh">集計を更新</button></section><section class="card"><h2>投票内容を編集</h2><form id="poll-settings"><label for="admin-title">投票タイトル</label><input id="admin-title" maxlength="100" required value="${
+      }<div class="actions"><button id="refresh">集計を更新</button><button id="reset" class="danger">投票をリセット</button></div></section><section class="card"><h2>投票ページ</h2><label for="vote-url">投票URL</label><input id="vote-url" readonly value="${
+        escapeHtml(voteUrl)
+      }"><button id="copy-vote-url" type="button">URLをコピー</button></section><section class="card"><h2>投票内容を編集</h2><form id="poll-settings"><label for="admin-title">投票タイトル</label><input id="admin-title" maxlength="100" required value="${
         escapeHtml(poll.title)
       }">${
         poll.options.map((o, i) =>
@@ -175,7 +179,27 @@ async function renderAdmin(id) {
           button.disabled = false;
         }
       });
+      document.querySelector("#copy-vote-url").onclick = async (event) => {
+        await navigator.clipboard.writeText(voteUrl);
+        event.currentTarget.textContent = "コピーしました";
+      };
       document.querySelector("#refresh").onclick = load;
+      document.querySelector("#reset").onclick = async () => {
+        if (!confirm("すべての票を0に戻します。リセットしてもよろしいですか？")) return;
+        editing = true;
+        document.querySelector("#reset").disabled = true;
+        try {
+          await api(`/api/polls/${id}/reset`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${token}` },
+          });
+          editing = false;
+          await load();
+        } catch (e) {
+          editing = false;
+          app.insertAdjacentHTML("afterbegin", message(e.message, true));
+        }
+      };
     } catch (e) {
       app.innerHTML = message(e.message, true);
     }

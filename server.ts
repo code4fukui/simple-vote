@@ -9,6 +9,7 @@ export type Poll = {
   options: { id: string; label: string; votes: number }[];
   adminToken: string;
   createdAt: string;
+  revision?: number;
 };
 
 const json = (value: unknown, status = 200, headers: HeadersInit = {}) =>
@@ -90,6 +91,7 @@ function publicPoll(poll: Poll) {
     title: poll.title,
     options: poll.options.map(({ id, label }) => ({ id, label })),
     createdAt: poll.createdAt,
+    revision: poll.revision ?? 0,
   };
 }
 
@@ -127,7 +129,7 @@ async function api(request: Request, url: URL): Promise<Response | null> {
     }, 201);
   }
 
-  const match = url.pathname.match(/^\/api\/polls\/([^/]+)(\/vote|\/results)?$/);
+  const match = url.pathname.match(/^\/api\/polls\/([^/]+)(\/vote|\/results|\/reset)?$/);
   if (!match) return null;
   const [, id, action = ""] = match;
   const poll = await readPoll(id);
@@ -175,6 +177,17 @@ async function api(request: Request, url: URL): Promise<Response | null> {
     });
   }
 
+  if (request.method === "POST" && action === "/reset") {
+    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+      url.searchParams.get("token");
+    if (token !== poll.adminToken) return json({ error: "管理トークンが正しくありません" }, 403);
+
+    poll.options.forEach((option) => option.votes = 0);
+    poll.revision = (poll.revision ?? 0) + 1;
+    await writePoll(poll);
+    return json({ ok: true, revision: poll.revision });
+  }
+
   if (request.method === "POST" && action === "/vote") {
     let body: { optionId?: unknown; browserId?: unknown };
     try {
@@ -191,7 +204,10 @@ async function api(request: Request, url: URL): Promise<Response | null> {
     if (!browserId) return json({ error: "ブラウザIDが必要です" }, 400);
     const option = poll.options.find((item) => item.id === String(body.optionId ?? ""));
     if (!option) return json({ error: "選択肢が正しくありません" }, 400);
-    const voterHash = await hash(`${poll.id}:${browserId}`);
+    const revision = poll.revision ?? 0;
+    const voterHash = await hash(
+      revision === 0 ? `${poll.id}:${browserId}` : `${poll.id}:${revision}:${browserId}`,
+    );
     if (await hasVoted(poll.id, voterHash)) {
       return json({ error: "このブラウザからは投票済みです" }, 409);
     }
