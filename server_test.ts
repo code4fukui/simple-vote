@@ -65,7 +65,7 @@ Deno.test("reset clears votes and starts a new voting revision", async () => {
     handler(
       new Request(`http://localhost/api/polls/${created.id}/vote`, {
         method: "POST",
-        body: JSON.stringify({ optionId: "1", browserId }),
+        body: JSON.stringify({ optionId: "1", browserId, comment: "  すてきでした  " }),
       }),
     );
 
@@ -87,4 +87,6 @@ Deno.test("reset clears votes and starts a new voting revision", async () => {
   const result = await results.json();
   assertEquals(result.totalVotes, 1);
   assertEquals(result.revision, 1);
+  assertEquals(result.logs.at(-1).optionLabel, "A");
+  assertEquals(result.logs.at(-1).comment, "すてきでした");
 });

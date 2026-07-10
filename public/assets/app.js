@@ -86,37 +86,41 @@ async function renderVote(id) {
     }</h1><p class="lead">最も良いと思った作品をひとつ選んでください。</p><section class="card" id="vote-card">${
       voted
         ? message("このブラウザからは投票済みです")
-        : `<h2>投票先を選択</h2>${
+        : `<h2>投票先を選択</h2><form id="vote-form"><div class="options">${
           poll.options.map((o, i) =>
-            `<button class="option" data-id="${escapeHtml(o.id)}"><span>${i + 1}</span>${
-              escapeHtml(o.label)
-            }</button>`
+            `<label class="option"><input type="radio" name="option" value="${
+              escapeHtml(o.id)
+            }" required><span>${i + 1}</span><strong>${escapeHtml(o.label)}</strong></label>`
           ).join("")
-        }`
+        }</div><label for="vote-comment">一言コメント（任意）</label><textarea id="vote-comment" maxlength="200" placeholder="応援メッセージや感想など"></textarea><button>投票する</button></form>`
     }</section>`;
-    document.querySelectorAll(".option").forEach((button) =>
-      button.addEventListener("click", async () => {
-        if (!confirm(`「${button.textContent.trim().replace(/^\d+/, "")}」に投票しますか？`)) {
-          return;
-        }
-        document.querySelectorAll(".option").forEach((x) => x.disabled = true);
-        try {
-          await api(`/api/polls/${id}/vote`, {
-            method: "POST",
-            body: JSON.stringify({ optionId: button.dataset.id, browserId: getBrowserId() }),
-          });
-          localStorage.setItem(voteStorageKey, "1");
-          document.querySelector("#vote-card").innerHTML = `<h2>投票ありがとうございました！</h2>${
-            message("あなたの一票を受け付けました。")
-          }`;
-        } catch (e) {
-          document.querySelector("#vote-card").insertAdjacentHTML(
-            "beforeend",
-            message(e.message, true),
-          );
-        }
-      })
-    );
+    document.querySelector("#vote-form")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.submitter;
+      button.disabled = true;
+      const form = new FormData(event.currentTarget);
+      try {
+        const comment = document.querySelector("#vote-comment").value;
+        await api(`/api/polls/${id}/vote`, {
+          method: "POST",
+          body: JSON.stringify({
+            optionId: form.get("option"),
+            browserId: getBrowserId(),
+            comment,
+          }),
+        });
+        localStorage.setItem(voteStorageKey, "1");
+        document.querySelector("#vote-card").innerHTML = `<h2>投票ありがとうございました！</h2>${
+          message("あなたの一票を受け付けました。")
+        }`;
+      } catch (e) {
+        document.querySelector("#vote-card").insertAdjacentHTML(
+          "beforeend",
+          message(e.message, true),
+        );
+        button.disabled = false;
+      }
+    });
   } catch (e) {
     app.innerHTML = message(e.message, true);
   }
@@ -142,7 +146,19 @@ async function renderAdmin(id) {
             o.votes / max * 100
           }%"></i></div></div>`
         ).join("")
-      }<div class="actions"><button id="refresh">集計を更新</button><button id="reset" class="danger">投票をリセット</button></div></section><section class="card"><h2>投票ページ</h2><label for="vote-url">投票URL</label><input id="vote-url" readonly value="${
+      }<div class="actions"><button id="refresh">集計を更新</button><button id="reset" class="danger">投票をリセット</button></div></section><section class="card"><h2>投票ログ</h2><div class="vote-logs">${
+        poll.logs.length
+          ? [...poll.logs].reverse().map((log) =>
+            `<article class="vote-log"><div class="vote-log-head"><strong>${
+              escapeHtml(log.optionLabel)
+            }</strong><time>${
+              escapeHtml(new Date(log.timestamp).toLocaleString("ja-JP"))
+            }</time></div><p>${
+              log.comment ? escapeHtml(log.comment) : '<span class="muted">コメントなし</span>'
+            }</p></article>`
+          ).join("")
+          : '<p class="muted">まだ投票はありません。</p>'
+      }</div></section><section class="card"><h2>投票ページ</h2><label for="vote-url">投票URL</label><input id="vote-url" readonly value="${
         escapeHtml(voteUrl)
       }"><button id="copy-vote-url" type="button">URLをコピー</button></section><section class="card"><h2>投票内容を編集</h2><form id="poll-settings"><label for="admin-title">投票タイトル</label><input id="admin-title" maxlength="100" required value="${
         escapeHtml(poll.title)
