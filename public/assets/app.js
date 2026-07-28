@@ -175,6 +175,14 @@ async function renderVote(id) {
         button.disabled = false;
       }
     });
+    setInterval(async () => {
+      try {
+        const latestPoll = await api(`/api/polls/${id}`);
+        if (latestPoll.revision !== poll.revision) location.reload();
+      } catch {
+        // Keep the current page visible during temporary connection failures.
+      }
+    }, 5000);
   } catch (e) {
     app.innerHTML = message(e.message, true);
   }
