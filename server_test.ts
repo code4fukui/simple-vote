@@ -19,6 +19,25 @@ Deno.test("rejects too few options", async () => {
   assertEquals(response.status, 400);
 });
 
+Deno.test("accepts up to 50 options and rejects 51", async () => {
+  const options = Array.from({ length: 50 }, (_, index) => `Team ${index + 1}`);
+  const accepted = await handler(
+    new Request("http://localhost/api/polls", {
+      method: "POST",
+      body: JSON.stringify({ title: "50 teams", options }),
+    }),
+  );
+  assertEquals(accepted.status, 201);
+
+  const rejected = await handler(
+    new Request("http://localhost/api/polls", {
+      method: "POST",
+      body: JSON.stringify({ title: "51 teams", options: [...options, "Team 51"] }),
+    }),
+  );
+  assertEquals(rejected.status, 400);
+});
+
 Deno.test("poll content update requires a valid admin token", async () => {
   const create = await handler(
     new Request("http://localhost/api/polls", {

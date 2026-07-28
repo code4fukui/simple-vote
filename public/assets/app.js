@@ -39,9 +39,9 @@ const exportJson = (data, prefix) => {
 function renderHome() {
   app.innerHTML =
     `<p class="eyebrow">Hackathon audience award</p><h1>みんなの一票を<br>その場で。</h1><p class="lead">選択肢を入力するだけで投票ページを発行。集計はリアルタイムに確認できます。</p><section class="card"><h2>投票をつくる</h2><form id="create"><label for="title">投票タイトル</label><input id="title" maxlength="100" required value="オーディエンス賞"><label for="count">選択肢の数</label><select id="count">${
-      Array.from({ length: 19 }, (_, i) =>
+      Array.from({ length: 49 }, (_, i) =>
         `<option value="${i + 2}" ${i === 2 ? "selected" : ""}>${i + 2}件</option>`).join("")
-    }</select><div id="choices"></div><button>投票ページを発行</button></form><div id="status"></div></section>`;
+    }</select><p class="field-hint">改行区切りのチーム名一覧を入力欄に貼り付けると、自動で展開されます。</p><div id="choices"></div><button>投票ページを発行</button></form><div id="status"></div></section>`;
   const count = document.querySelector("#count");
   const draw = () =>
     document.querySelector("#choices").innerHTML = Array.from(
@@ -53,6 +53,22 @@ function renderHome() {
     ).join("");
   count.addEventListener("change", draw);
   draw();
+  document.querySelector("#choices").addEventListener("paste", (event) => {
+    const pasted = event.clipboardData?.getData("text") ?? "";
+    const names = pasted.split(/\r?\n/).map((name) => name.trim()).filter(Boolean);
+    if (names.length < 2) return;
+    event.preventDefault();
+    const acceptedNames = names.slice(0, 50).map((name) => name.slice(0, 100));
+    count.value = String(acceptedNames.length);
+    draw();
+    [...document.querySelectorAll('[name="option"]')].forEach((input, index) => {
+      input.value = acceptedNames[index];
+    });
+    const adjusted = names.length > 50 || names.some((name) => name.length > 100);
+    document.querySelector("#status").innerHTML = adjusted
+      ? message("最大50件・各100文字以内に調整して入力しました。")
+      : message(`${acceptedNames.length}件のチーム名を入力しました。`);
+  });
   document.querySelector("#create").addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = event.submitter;

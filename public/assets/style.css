@@ -114,6 +114,11 @@ label {
   margin: 20px 0 8px;
   font-weight: 800;
 }
+.field-hint {
+  margin: 8px 0 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
 input,
 select,
 textarea {
@@ -284,6 +289,17 @@ footer {
   text-align: center;
   color: var(--muted);
   font-size: 13px;
+}
+footer p {
+  margin: 5px 0;
+}
+footer a {
+  color: inherit;
+}
+.credits {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
 }
 @media (max-width:520px) {
   header span {

@@ -161,10 +161,10 @@ async function api(request: Request, url: URL): Promise<Response | null> {
       : [];
     if (!title || title.length > 100) return json({ error: "タイトルは1〜100文字です" }, 400);
     if (
-      labels.length < 2 || labels.length > 20 ||
+      labels.length < 2 || labels.length > 50 ||
       labels.some((label) => !label || label.length > 100)
     ) {
-      return json({ error: "選択肢は2〜20個、各1〜100文字です" }, 400);
+      return json({ error: "選択肢は2〜50個、各1〜100文字です" }, 400);
     }
     const poll: Poll = {
       id: randomToken(9),
