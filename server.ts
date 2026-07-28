@@ -2,6 +2,7 @@ const ROOT = new URL(".", import.meta.url);
 const PUBLIC = new URL("./public/", ROOT);
 const DATA = new URL("./data/polls/", ROOT);
 const LOGS = new URL("./data/votes.ndjson", ROOT);
+const COMMENTS = new URL("./data/comments.ndjson", ROOT);
 
 export type Poll = {
   id: string;
@@ -62,6 +63,13 @@ function cookie(request: Request, name: string) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+async function voterHash(poll: Poll, browserId: string) {
+  const revision = poll.revision ?? 0;
+  return await hash(
+    revision === 0 ? `${poll.id}:${browserId}` : `${poll.id}:${revision}:${browserId}`,
+  );
+}
+
 async function hasVoted(pollId: string, voterId: string) {
   try {
     const content = await Deno.readTextFile(LOGS);
@@ -83,6 +91,32 @@ async function hasVoted(pollId: string, voterId: string) {
 async function appendVoteLog(event: Record<string, unknown>) {
   await Deno.mkdir(new URL("./data/", ROOT), { recursive: true });
   await Deno.writeTextFile(LOGS, `${JSON.stringify(event)}\n`, { append: true, create: true });
+}
+
+async function appendCommentLog(event: Record<string, unknown>) {
+  await Deno.mkdir(new URL("./data/", ROOT), { recursive: true });
+  await Deno.writeTextFile(COMMENTS, `${JSON.stringify(event)}\n`, {
+    append: true,
+    create: true,
+  });
+}
+
+async function readCommentLogs(pollId: string) {
+  try {
+    const content = await Deno.readTextFile(COMMENTS);
+    return content.split("\n").flatMap((line) => {
+      if (!line) return [];
+      try {
+        const event = JSON.parse(line);
+        return event.pollId === pollId ? [event] : [];
+      } catch {
+        return [];
+      }
+    });
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return [];
+    throw error;
+  }
 }
 
 async function readVoteLogs(pollId: string) {
@@ -143,11 +177,14 @@ async function api(request: Request, url: URL): Promise<Response | null> {
     return json({
       id: poll.id,
       voteUrl: `/vote/${poll.id}`,
+      resultUrl: `/result/${poll.id}`,
       adminUrl: `/admin/${poll.id}?token=${poll.adminToken}`,
     }, 201);
   }
 
-  const match = url.pathname.match(/^\/api\/polls\/([^/]+)(\/vote|\/results|\/reset)?$/);
+  const match = url.pathname.match(
+    /^\/api\/polls\/([^/]+)(\/vote|\/comments|\/results|\/public-results|\/reset)?$/,
+  );
   if (!match) return null;
   const [, id, action = ""] = match;
   const poll = await readPoll(id);
@@ -191,6 +228,9 @@ async function api(request: Request, url: URL): Promise<Response | null> {
     const logs = (await readVoteLogs(poll.id)).filter(
       (event) => (event.revision ?? 0) === (poll.revision ?? 0),
     );
+    const comments = (await readCommentLogs(poll.id)).filter(
+      (event) => (event.revision ?? 0) === (poll.revision ?? 0),
+    );
     return json({
       ...publicPoll(poll),
       options: poll.options,
@@ -201,7 +241,69 @@ async function api(request: Request, url: URL): Promise<Response | null> {
         optionLabel: poll.options.find((option) => option.id === event.optionId)?.label ??
           "削除された選択肢",
         comment: typeof event.comment === "string" ? event.comment : "",
+        userId: typeof event.voterHash === "string" ? event.voterHash.slice(0, 8) : "",
       })),
+      comments: comments.map((event) => ({
+        timestamp: event.timestamp,
+        optionId: event.optionId,
+        optionLabel: poll.options.find((option) => option.id === event.optionId)?.label ??
+          "削除された選択肢",
+        comment: typeof event.comment === "string" ? event.comment : "",
+        userId: typeof event.voterHash === "string" ? event.voterHash.slice(0, 8) : "",
+      })),
+    });
+  }
+
+  if (request.method === "GET" && action === "/public-results") {
+    const comments = (await readCommentLogs(poll.id)).filter(
+      (event) => (event.revision ?? 0) === (poll.revision ?? 0),
+    );
+    return json({
+      ...publicPoll(poll),
+      options: poll.options,
+      totalVotes: poll.options.reduce((a, b) => a + b.votes, 0),
+      comments: comments.map((event) => ({
+        timestamp: event.timestamp,
+        optionId: event.optionId,
+        optionLabel: poll.options.find((option) => option.id === event.optionId)?.label ??
+          "削除された選択肢",
+        comment: typeof event.comment === "string" ? event.comment : "",
+        userId: typeof event.voterHash === "string" ? event.voterHash.slice(0, 8) : "",
+      })),
+    });
+  }
+
+  if (request.method === "POST" && action === "/comments") {
+    let body: { optionId?: unknown; browserId?: unknown; comment?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "JSON形式が正しくありません" }, 400);
+    }
+    const option = poll.options.find((item) => item.id === String(body.optionId ?? ""));
+    if (!option) return json({ error: "チームが正しくありません" }, 400);
+    const comment = typeof body.comment === "string" ? body.comment.trim() : "";
+    if (!comment || comment.length > 200) {
+      return json({ error: "一言コメントは1〜200文字です" }, 400);
+    }
+    const suppliedBrowserId = typeof body.browserId === "string" && body.browserId.length >= 16
+      ? body.browserId.slice(0, 100)
+      : null;
+    const browserId = cookie(request, "simple_vote_browser") ?? suppliedBrowserId;
+    if (!browserId) return json({ error: "ブラウザIDが必要です" }, 400);
+    await appendCommentLog({
+      timestamp: new Date().toISOString(),
+      pollId: poll.id,
+      revision: poll.revision ?? 0,
+      optionId: option.id,
+      comment,
+      voterHash: await voterHash(poll, browserId),
+      userAgent: request.headers.get("user-agent") ?? "",
+    });
+    return json({ ok: true }, 201, {
+      "set-cookie": `simple_vote_browser=${
+        encodeURIComponent(browserId)
+      }; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`,
     });
   }
 
@@ -235,10 +337,8 @@ async function api(request: Request, url: URL): Promise<Response | null> {
     const comment = typeof body.comment === "string" ? body.comment.trim() : "";
     if (comment.length > 200) return json({ error: "一言コメントは200文字以内です" }, 400);
     const revision = poll.revision ?? 0;
-    const voterHash = await hash(
-      revision === 0 ? `${poll.id}:${browserId}` : `${poll.id}:${revision}:${browserId}`,
-    );
-    if (await hasVoted(poll.id, voterHash)) {
+    const hashedVoter = await voterHash(poll, browserId);
+    if (await hasVoted(poll.id, hashedVoter)) {
       return json({ error: "このブラウザからは投票済みです" }, 409);
     }
 
@@ -251,7 +351,7 @@ async function api(request: Request, url: URL): Promise<Response | null> {
       revision,
       optionId: option.id,
       comment,
-      voterHash,
+      voterHash: hashedVoter,
       userAgent: request.headers.get("user-agent") ?? "",
     });
     return json({ ok: true }, 201, {

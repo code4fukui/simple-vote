@@ -23,6 +23,18 @@ const getBrowserId = () => {
 };
 const message = (text, error = false) =>
   `<div class="notice ${error ? "error" : ""}">${escapeHtml(text)}</div>`;
+const exportJson = (data, prefix) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
+  link.href = url;
+  link.download = `${prefix}-${timestamp}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
 
 function renderHome() {
   app.innerHTML =
@@ -54,14 +66,19 @@ function renderHome() {
         }),
       });
       const voteUrl = new URL(result.voteUrl, location.origin).href;
+      const resultUrl = new URL(result.resultUrl, location.origin).href;
       const adminUrl = new URL(result.adminUrl, location.origin).href;
       document.querySelector("#status").innerHTML = `${
         message("投票ページを発行しました！")
       }<label>投票URL</label><input readonly value="${
         escapeHtml(voteUrl)
+      }"><label>投票結果URL</label><input readonly value="${
+        escapeHtml(resultUrl)
       }"><div class="actions"><button type="button" data-copy="${
         escapeHtml(voteUrl)
       }">URLをコピー</button><a class="button secondary" href="${
+        escapeHtml(resultUrl)
+      }">投票結果を見る</a><a class="button secondary" href="${
         escapeHtml(adminUrl)
       }">集計・編集画面を見る</a></div><p>管理URLは再発行できないため、大切に保存してください。</p>`;
       document.querySelector("[data-copy]").onclick = async (e) => {
@@ -83,30 +100,67 @@ async function renderVote(id) {
     const voted = localStorage.getItem(voteStorageKey);
     app.innerHTML = `<p class="eyebrow">Your vote</p><h1>${
       escapeHtml(poll.title)
-    }</h1><p class="lead">最も良いと思った作品をひとつ選んでください。</p><section class="card" id="vote-card">${
+    }</h1><p class="lead">各チームへコメントを送れます。最後に投票先をひとつ選んでください。</p><div class="team-list">${
+      poll.options.map((o, i) =>
+        `<section class="card team-card"><div class="team-heading"><span class="team-number">${
+          i + 1
+        }</span><h2>${escapeHtml(o.label)}</h2></div><form class="comment-form" data-option-id="${
+          escapeHtml(o.id)
+        }"><label for="comment-${
+          escapeHtml(o.id)
+        }">このチームに一言コメント</label><textarea id="comment-${
+          escapeHtml(o.id)
+        }" name="comment" maxlength="200" required placeholder="応援メッセージや感想を入力"></textarea><div class="comment-actions"><span class="comment-status" aria-live="polite"></span><button type="submit" class="secondary">コメントを送信</button></div></form></section>`
+      ).join("")
+    }</div><section class="card vote-card" id="vote-card"><h2>投票先を選択</h2>${
       voted
         ? message("このブラウザからは投票済みです")
-        : `<h2>投票先を選択</h2><form id="vote-form"><div class="options">${
-          poll.options.map((o, i) =>
-            `<label class="option"><input type="radio" name="option" value="${
-              escapeHtml(o.id)
-            }" required><span>${i + 1}</span><strong>${escapeHtml(o.label)}</strong></label>`
+        : `<form id="vote-form"><label for="vote-option">投票するチーム</label><select id="vote-option" name="option" required><option value="">チームを選択してください</option>${
+          poll.options.map((o) =>
+            `<option value="${escapeHtml(o.id)}">${escapeHtml(o.label)}</option>`
           ).join("")
-        }</div><label for="vote-comment">一言コメント（任意）</label><textarea id="vote-comment" maxlength="200" placeholder="応援メッセージや感想など"></textarea><button>投票する</button></form>`
+        }</select><button>投票する</button></form>`
     }</section>`;
+    document.querySelectorAll(".comment-form").forEach((commentForm) => {
+      commentForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const button = event.submitter;
+        const status = form.querySelector(".comment-status");
+        const textarea = form.querySelector('[name="comment"]');
+        button.disabled = true;
+        status.textContent = "";
+        status.classList.remove("is-error");
+        try {
+          await api(`/api/polls/${id}/comments`, {
+            method: "POST",
+            body: JSON.stringify({
+              optionId: form.dataset.optionId,
+              browserId: getBrowserId(),
+              comment: textarea.value,
+            }),
+          });
+          status.textContent = "送信しました";
+          button.textContent = "コメントを更新";
+        } catch (e) {
+          status.textContent = e.message;
+          status.classList.add("is-error");
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
     document.querySelector("#vote-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.submitter;
       button.disabled = true;
       const form = new FormData(event.currentTarget);
       try {
-        const comment = document.querySelector("#vote-comment").value;
         await api(`/api/polls/${id}/vote`, {
           method: "POST",
           body: JSON.stringify({
             optionId: form.get("option"),
             browserId: getBrowserId(),
-            comment,
           }),
         });
         localStorage.setItem(voteStorageKey, "1");
@@ -126,9 +180,71 @@ async function renderVote(id) {
   }
 }
 
+async function renderResult(id) {
+  let selectedCommentOption = "";
+  const load = async () => {
+    try {
+      const poll = await api(`/api/polls/${id}/public-results`);
+      const max = Math.max(1, ...poll.options.map((o) => o.votes));
+      app.innerHTML = `<p class="eyebrow">Vote results</p><h1>${
+        escapeHtml(poll.title)
+      }</h1><p class="lead">現在の集計・合計 ${poll.totalVotes} 票</p><section class="card results-card"><h2>現在の集計</h2>${
+        poll.options.map((o) =>
+          `<div class="result"><div class="result-head"><span>${
+            escapeHtml(o.label)
+          }</span><span>${o.votes}票</span></div><div class="bar"><i style="width:${
+            o.votes / max * 100
+          }%"></i></div></div>`
+        ).join("")
+      }</section><section class="card"><h2>チームへのコメント</h2><label for="result-comment-filter">表示するチーム</label><select id="result-comment-filter"><option value="">全部</option>${
+        poll.options.map((o) =>
+          `<option value="${escapeHtml(o.id)}" ${
+            selectedCommentOption === o.id ? "selected" : ""
+          }>${escapeHtml(o.label)}</option>`
+        ).join("")
+      }</select><div class="vote-logs">${
+        poll.comments.length
+          ? [...poll.comments].reverse().map((log) =>
+            `<article class="vote-log" data-option-id="${
+              escapeHtml(log.optionId)
+            }"><div class="vote-log-head"><strong>${
+              escapeHtml(log.optionLabel)
+            }</strong><div class="log-meta"><code title="ユーザー識別ID">${
+              escapeHtml(log.userId || "--------")
+            }</code><time>${
+              escapeHtml(new Date(log.timestamp).toLocaleString("ja-JP"))
+            }</time></div></div><p>${escapeHtml(log.comment)}</p></article>`
+          ).join("")
+          : '<p class="muted">まだコメントはありません。</p>'
+      }</div></section><p class="result-updated">集計は5秒ごとに自動更新されます</p><div class="page-actions"><button id="export-public-results" class="secondary" type="button">JSONをエクスポート</button></div>`;
+      const filter = document.querySelector("#result-comment-filter");
+      document.querySelector("#export-public-results").addEventListener(
+        "click",
+        () => exportJson(poll, `vote-result-${poll.id}`),
+      );
+      const applyCommentFilter = () => {
+        document.querySelectorAll(".vote-log[data-option-id]").forEach((log) => {
+          log.hidden = Boolean(selectedCommentOption) &&
+            log.dataset.optionId !== selectedCommentOption;
+        });
+      };
+      filter.addEventListener("change", () => {
+        selectedCommentOption = filter.value;
+        applyCommentFilter();
+      });
+      applyCommentFilter();
+    } catch (e) {
+      app.innerHTML = message(e.message, true);
+    }
+  };
+  await load();
+  setInterval(load, 5000);
+}
+
 async function renderAdmin(id) {
   const token = new URLSearchParams(location.search).get("token") || "";
   let editing = false;
+  let selectedCommentOption = "";
   const load = async () => {
     try {
       const poll = await api(`/api/polls/${id}/results`, {
@@ -136,6 +252,7 @@ async function renderAdmin(id) {
       });
       const max = Math.max(1, ...poll.options.map((o) => o.votes));
       const voteUrl = new URL(`/vote/${encodeURIComponent(id)}`, location.origin).href;
+      const resultUrl = new URL(`/result/${encodeURIComponent(id)}`, location.origin).href;
       app.innerHTML = `<p class="eyebrow">Live results</p><h1>${
         escapeHtml(poll.title)
       }</h1><p class="lead">合計 ${poll.totalVotes} 票</p><section class="card results-card"><h2>現在の集計</h2>${
@@ -151,16 +268,40 @@ async function renderAdmin(id) {
           ? [...poll.logs].reverse().map((log) =>
             `<article class="vote-log"><div class="vote-log-head"><strong>${
               escapeHtml(log.optionLabel)
-            }</strong><time>${
+            }</strong><div class="log-meta"><code title="ユーザー識別ID">${
+              escapeHtml(log.userId || "--------")
+            }</code><time>${
               escapeHtml(new Date(log.timestamp).toLocaleString("ja-JP"))
-            }</time></div><p>${
-              log.comment ? escapeHtml(log.comment) : '<span class="muted">コメントなし</span>'
-            }</p></article>`
+            }</time></div></div>${log.comment ? `<p>${escapeHtml(log.comment)}</p>` : ""}</article>`
           ).join("")
           : '<p class="muted">まだ投票はありません。</p>'
-      }</div></section><section class="card"><h2>投票ページ</h2><label for="vote-url">投票URL</label><input id="vote-url" readonly value="${
+      }</div></section><section class="card"><h2>チームへのコメント</h2><label for="admin-comment-filter">表示するチーム</label><select id="admin-comment-filter"><option value="">全部</option>${
+        poll.options.map((o) =>
+          `<option value="${escapeHtml(o.id)}" ${
+            selectedCommentOption === o.id ? "selected" : ""
+          }>${escapeHtml(o.label)}</option>`
+        ).join("")
+      }</select><div class="vote-logs">${
+        poll.comments.length
+          ? [...poll.comments].reverse().map((log) =>
+            `<article class="vote-log" data-comment-option-id="${
+              escapeHtml(log.optionId)
+            }"><div class="vote-log-head"><strong>${
+              escapeHtml(log.optionLabel)
+            }</strong><div class="log-meta"><code title="ユーザー識別ID">${
+              escapeHtml(log.userId || "--------")
+            }</code><time>${
+              escapeHtml(new Date(log.timestamp).toLocaleString("ja-JP"))
+            }</time></div></div><p>${escapeHtml(log.comment)}</p></article>`
+          ).join("")
+          : '<p class="muted">まだコメントはありません。</p>'
+      }</div></section><section class="card"><h2>公開ページ</h2><label for="vote-url">投票URL</label><input id="vote-url" readonly value="${
         escapeHtml(voteUrl)
-      }"><button id="copy-vote-url" type="button">URLをコピー</button></section><section class="card"><h2>投票内容を編集</h2><form id="poll-settings"><label for="admin-title">投票タイトル</label><input id="admin-title" maxlength="100" required value="${
+      }"><button id="copy-vote-url" type="button">URLをコピー</button><label for="result-url">投票結果URL</label><input id="result-url" readonly value="${
+        escapeHtml(resultUrl)
+      }"><a class="button secondary" href="${
+        escapeHtml(resultUrl)
+      }">投票結果を見る</a></section><section class="card"><h2>投票内容を編集</h2><form id="poll-settings"><label for="admin-title">投票タイトル</label><input id="admin-title" maxlength="100" required value="${
         escapeHtml(poll.title)
       }">${
         poll.options.map((o, i) =>
@@ -170,8 +311,24 @@ async function renderAdmin(id) {
             escapeHtml(o.label)
           }">`
         ).join("")
-      }<button>変更を保存</button></form><div id="status"></div></section>`;
+      }<button>変更を保存</button></form><div id="status"></div></section><div class="page-actions"><button id="export-admin-results" class="secondary" type="button">JSONをエクスポート</button></div>`;
       document.querySelector("#poll-settings").addEventListener("input", () => editing = true);
+      document.querySelector("#export-admin-results").addEventListener(
+        "click",
+        () => exportJson(poll, `vote-admin-result-${poll.id}`),
+      );
+      const commentFilter = document.querySelector("#admin-comment-filter");
+      const applyCommentFilter = () => {
+        document.querySelectorAll(".vote-log[data-comment-option-id]").forEach((log) => {
+          log.hidden = Boolean(selectedCommentOption) &&
+            log.dataset.commentOptionId !== selectedCommentOption;
+        });
+      };
+      commentFilter.addEventListener("change", () => {
+        selectedCommentOption = commentFilter.value;
+        applyCommentFilter();
+      });
+      applyCommentFilter();
       document.querySelector("#poll-settings").addEventListener("submit", async (event) => {
         event.preventDefault();
         const button = event.submitter;
@@ -228,5 +385,6 @@ async function renderAdmin(id) {
 
 const parts = location.pathname.split("/").filter(Boolean);
 if (parts[0] === "vote" && parts[1]) renderVote(parts[1]);
+else if (parts[0] === "result" && parts[1]) renderResult(parts[1]);
 else if (parts[0] === "admin" && parts[1]) renderAdmin(parts[1]);
 else renderHome();
