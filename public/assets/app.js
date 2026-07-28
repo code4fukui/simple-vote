@@ -40,7 +40,7 @@ function renderHome() {
   app.innerHTML =
     `<p class="eyebrow">Hackathon audience award</p><h1>みんなの一票を<br>その場で。</h1><p class="lead">選択肢を入力するだけで投票ページを発行。集計はリアルタイムに確認できます。</p><section class="card"><h2>投票をつくる</h2><form id="create"><label for="title">投票タイトル</label><input id="title" maxlength="100" required value="オーディエンス賞"><label for="count">選択肢の数</label><select id="count">${
       Array.from({ length: 49 }, (_, i) =>
-        `<option value="${i + 2}" ${i === 2 ? "selected" : ""}>${i + 2}件</option>`).join("")
+        `<option value="${i + 2}" ${i === 1 ? "selected" : ""}>${i + 2}件</option>`).join("")
     }</select><p class="field-hint">改行区切りのチーム名一覧を入力欄に貼り付けると、自動で展開されます。</p><div id="choices"></div><button>投票ページを発行</button></form><div id="status"></div></section>`;
   const count = document.querySelector("#count");
   const draw = () =>
@@ -86,21 +86,31 @@ function renderHome() {
       const adminUrl = new URL(result.adminUrl, location.origin).href;
       document.querySelector("#status").innerHTML = `${
         message("投票ページを発行しました！")
-      }<label>投票URL</label><input readonly value="${
+      }<label for="created-vote-url">投票URL</label><input id="created-vote-url" readonly value="${
         escapeHtml(voteUrl)
-      }"><label>投票結果URL</label><input readonly value="${
-        escapeHtml(resultUrl)
       }"><div class="actions"><button type="button" data-copy="${
         escapeHtml(voteUrl)
       }">URLをコピー</button><a class="button secondary" href="${
+        escapeHtml(voteUrl)
+      }" target="_blank" rel="noopener">投票ページを見る</a></div><label for="created-result-url">投票結果URL</label><input id="created-result-url" readonly value="${
         escapeHtml(resultUrl)
-      }">投票結果を見る</a><a class="button secondary" href="${
+      }"><div class="actions"><button type="button" data-copy="${
+        escapeHtml(resultUrl)
+      }">URLをコピー</button><a class="button secondary" href="${
+        escapeHtml(resultUrl)
+      }" target="_blank" rel="noopener">投票結果ページを見る</a></div><label for="created-admin-url">集計編集URL</label><input id="created-admin-url" readonly value="${
         escapeHtml(adminUrl)
-      }">集計・編集画面を見る</a></div><p>管理URLは再発行できないため、大切に保存してください。</p>`;
-      document.querySelector("[data-copy]").onclick = async (e) => {
-        await navigator.clipboard.writeText(e.currentTarget.dataset.copy);
-        e.currentTarget.textContent = "コピーしました";
-      };
+      }"><div class="actions"><button type="button" data-copy="${
+        escapeHtml(adminUrl)
+      }">URLをコピー</button><a class="button secondary" href="${
+        escapeHtml(adminUrl)
+      }" target="_blank" rel="noopener">集計編集ページを見る</a></div><p>管理URLは再発行できないため、大切に保存してください。</p>`;
+      document.querySelectorAll("[data-copy]").forEach((copyButton) => {
+        copyButton.addEventListener("click", async (event) => {
+          await navigator.clipboard.writeText(event.currentTarget.dataset.copy);
+          event.currentTarget.textContent = "コピーしました";
+        });
+      });
     } catch (e) {
       document.querySelector("#status").innerHTML = message(e.message, true);
     } finally {
