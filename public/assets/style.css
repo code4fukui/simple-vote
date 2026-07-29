@@ -262,6 +262,31 @@ button:disabled {
   gap: 12px;
   flex-wrap: wrap;
 }
+.qr-links {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 20px;
+  margin: 24px 0 30px;
+}
+.qr-link {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-width: 0;
+  padding: 20px 14px 14px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  text-align: center;
+}
+.qr-link qr-code {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+}
+.qr-link p {
+  margin: 12px 0 0;
+  font-weight: 900;
+}
 .page-actions {
   display: flex;
   justify-content: flex-end;
@@ -311,5 +336,8 @@ footer a {
   }
   .card {
     box-shadow: 5px 5px 0 var(--ink);
+  }
+  .qr-links {
+    grid-template-columns: 1fr;
   }
 }

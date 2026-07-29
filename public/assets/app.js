@@ -1,3 +1,5 @@
+import "https://code4fukui.github.io/qr-code/qr-code.js";
+
 const app = document.querySelector("#app");
 const escapeHtml = (value) =>
   String(value).replace(
@@ -23,6 +25,12 @@ const getBrowserId = () => {
 };
 const message = (text, error = false) =>
   `<div class="notice ${error ? "error" : ""}">${escapeHtml(text)}</div>`;
+const qrLink = (url, label) =>
+  `<div class="qr-link"><qr-code dotsize="5">${escapeHtml(url)}</qr-code><p>${
+    escapeHtml(
+      label,
+    )
+  }</p></div>`;
 const exportJson = (data, prefix) => {
   const blob = new Blob([JSON.stringify(data, null, 2)], {
     type: "application/json;charset=utf-8",
@@ -86,7 +94,9 @@ function renderHome() {
       const adminUrl = new URL(result.adminUrl, location.origin).href;
       document.querySelector("#status").innerHTML = `${
         message("投票ページを発行しました！")
-      }<label for="created-vote-url">投票URL</label><input id="created-vote-url" readonly value="${
+      }<div class="qr-links">${qrLink(voteUrl, "投票する")}${
+        qrLink(resultUrl, "投票結果を見る")
+      }</div><label for="created-vote-url">投票URL</label><input id="created-vote-url" readonly value="${
         escapeHtml(voteUrl)
       }"><div class="actions"><button type="button" data-copy="${
         escapeHtml(voteUrl)
@@ -329,7 +339,11 @@ async function renderAdmin(id) {
             }</time></div></div><p>${escapeHtml(log.comment)}</p></article>`
           ).join("")
           : '<p class="muted">まだコメントはありません。</p>'
-      }</div></section><section class="card"><h2>公開ページ</h2><label for="vote-url">投票URL</label><input id="vote-url" readonly value="${
+      }</div></section><section class="card"><h2>公開ページ</h2><div class="qr-links">${
+        qrLink(voteUrl, "投票する")
+      }${
+        qrLink(resultUrl, "投票結果を見る")
+      }</div><label for="vote-url">投票URL</label><input id="vote-url" readonly value="${
         escapeHtml(voteUrl)
       }"><button id="copy-vote-url" type="button">URLをコピー</button><label for="result-url">投票結果URL</label><input id="result-url" readonly value="${
         escapeHtml(resultUrl)
